@@ -1,0 +1,129 @@
+//
+// CLIENT primary sends to server
+//
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <time.h>
+
+#define PORT 8080
+#define BUFFER_SIZE 1024
+
+//sets up a TCP connection and sends a file over the connection
+int main(int argc, char const *argv[]) {
+    int sending_socket;
+    struct sockaddr_in sending_address;
+
+    char *buffer;
+    FILE *file;
+    int bytes_sent;
+
+    char packet[BUFFER_SIZE]; //buffer size is size of packet and how many bytes it will send at a time
+    int i;
+
+    // Create the sending socket
+    if ((sending_socket = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
+    }
+
+    //first creates a sending socket using the socket() function and binds it to an address using the bind() function
+    // Set up the sending address
+    memset(&sending_address, '0', sizeof(sending_address));
+    sending_address.sin_family = AF_INET; //"127.0.0.1" = local host (the laptop)
+    sending_address.sin_addr.s_addr = INADDR_ANY;
+    sending_address.sin_port = htons(PORT); //listening on the same port (PORT)
+
+    // Bind the sending socket to the sending address
+    if (bind(sending_socket, (struct sockaddr *) &sending_address, sizeof(sending_address)) < 0) {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Waiting for connection...\n");
+
+    // Listen for incoming connections
+    if (listen(sending_socket, 3) < 0) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
+    }
+
+    // Accept an incoming connection
+    int receiving_socket;
+    struct sockaddr_in receiving_address;
+    int addrlen = sizeof(receiving_address);
+    //accepts an incoming connection using accept()
+    if ((receiving_socket = accept(sending_socket, (struct sockaddr *) &receiving_address, (socklen_t *) &addrlen)) <
+        0) {
+        perror("Accept failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Connection established\n");
+
+    char *filename = "/Users/harleengill/CLionProjects/untitled1/test.jpg";
+    FILE *fp = fopen(filename, "rb");
+    if (fp == NULL) {
+        printf("Failed to open file: %s\n", filename);
+        return 1;
+    }
+
+    fseek(fp, 0L, SEEK_END);
+    long int size = ftell(fp);
+    fseek(fp, 0L, SEEK_SET);
+    buffer = (char *) malloc(size + 1);
+    //Once a connection is established,
+    // the program reads a file into a buffer in chunks
+    // of a fixed size (BUFFER_SIZE) and sends each chunk
+    // over the socket connection using the send() function.
+
+    if (!buffer) {
+        printf("\nMemory error allocating buffer");
+        fclose(fp);
+        return 1;
+    }
+
+    printf("File size of %s: %ld bytes\n", filename, size);
+
+    // Send the file size to the receiving program
+    uint32_t network_size = htonl((uint32_t) size);
+    if (send(receiving_socket, &network_size, sizeof(network_size), 0) != sizeof(network_size)) {
+        perror("Error sending file size");
+        exit(EXIT_FAILURE);
+    }
+    //^file size is converted to network byte using hton() function then sent over the socket connection using the send() function
+
+    // Receive the file from the primary host
+    int ACK_seq =0; //used to keep track of the sequence number of each packet sent sures that all packets are received in correct order
+    int total_bytes_sent = 0;
+    size_t bytes_read;
+    while ((bytes_read = fread(buffer, 1, BUFFER_SIZE, fp)) > 0) { //reads from file
+        if (send(receiving_socket, buffer, bytes_read, 0) != bytes_read) { // reads the file into a buffer in chunks of BUFFER_SIZE bytes, then sends each chunk over the socket connection
+            perror("Error sending file");
+            exit(EXIT_FAILURE);
+        }
+        total_bytes_sent += bytes_read; //total # of bytes sent
+        printf("sent packet: %d \n", ACK_seq);
+        printf("bytes read: %d \n", bytes_read);
+        ACK_seq ++;
+    }
+
+    if (bytes_read == -1) {
+        perror("Error reading file");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("File sent successfully. Total bytes sent: %d\n", total_bytes_sent);
+    fclose(fp);
+    //after file sent, program prints message to indicate total number of bytes sent then closes using fclose()
+    //Close the receiving socket
+    //close(receiving_socket);
+
+    //Close the sending socket
+    //close(sending_socket);
+
+    return 0;
