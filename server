@@ -1,0 +1,85 @@
+//
+// SERVER server
+//
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+#define PORT 8080 //shared by client and server communication point between server and client
+#define BUFFER_SIZE 1024 //size of the buffer used to receive data from the server
+
+int main(int argc, char const *argv[]) {
+    int receiving_socket; //socket used for receiving data from the server
+    struct sockaddr_in receiving_address;
+    int addrlen = sizeof(receiving_address);
+
+    // Create the receiving socket for the client to receive data from the server using the socket function.
+    if ((receiving_socket = socket(AF_INET, SOCK_STREAM, 0)) == 0) { //af_net used as ipv4 address family, sock_stream for a TCP connection
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
+        //If the socket was not created successfully, the program prints an error message using perror and exits with failure status using exit(EXIT_FAILURE)
+    }
+
+    // Set up the receiving address
+    memset(&receiving_address, '0', sizeof(receiving_address));
+    receiving_address.sin_family = AF_INET;
+    receiving_address.sin_addr.s_addr = inet_addr("127.0.0.1");
+    receiving_address.sin_port = htons(PORT);
+    //sets up the receiving address using the sockaddr_in structure, which specifies the address family (AF_INET), the IP address of the server (127.0.0.1), and the port number (PORT).
+
+    // Connect to the primary host
+    if (connect(receiving_socket, (struct sockaddr *)&receiving_address, sizeof(receiving_address)) < 0) {
+        perror("Connection failed");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Connected to primary host\n");
+
+    // Receive the file size from the primary host
+    uint32_t network_size;
+    if (recv(receiving_socket, &network_size, sizeof(network_size), 0) != sizeof(network_size)) {
+        perror("Error receiving file size");
+        exit(EXIT_FAILURE);
+        // receives the file size from the server using the recv function, which receives data from the socket.
+        //using a while loop that calls recv repeatedly until all the data has been received.
+    }
+    uint32_t file_size = ntohl(network_size);
+    printf("File size received: %u bytes\n", file_size);
+
+    char buffer[BUFFER_SIZE]; //reads the file into a buffer in chunks of BUFFER_SIZE bytes, then sends each chunk over the socket connection
+    FILE *file;
+    int bytes_received;
+    int total_bytes_received = 0;
+
+    //writes the received data to a file named received_image.jpg using the fwrite function, which writes data to a file.
+    char *filename = "received_image.jpg";
+    file = fopen(filename, "wb"); // open the file for writing in binary mode writes bytes
+    if (file == NULL) {
+        printf("Failed to create file: %s\n", filename);
+        return 1;
+    }
+
+    int packet_number = 0;
+    while (total_bytes_received < file_size && (bytes_received = recv(receiving_socket, buffer, BUFFER_SIZE, 0)) > 0) {
+        printf("ACK/Sequence number received: %d\n", packet_number++);
+        printf("Bytes received: %d\n", bytes_received);
+        fwrite(buffer, 1, bytes_received, file); //writes to the file
+        total_bytes_received += bytes_received;
+    }
+
+    if (bytes_received == -1) {
+        perror("Error receiving file");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("File received successfully. Total bytes received: %d\n", total_bytes_received);
+    fclose(file);
+
+    //Close the receiving socket
+    //close(receiving_socket);
+
+    return 0;
